@@ -1,4 +1,8 @@
-activator-akka-scala-seed
+server-write-reader
 =========================
 
-A minimal seed template for an Akka with Scala build 
+# running locally in the same host
+
+> sbt "run Server"
+> sbt "run Reader"
+> sbt "run Writer"
