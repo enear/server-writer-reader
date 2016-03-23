@@ -8,7 +8,7 @@ import org.scalatest.WordSpecLike
 import org.scalatest.Matchers
 import org.scalatest.BeforeAndAfterAll
  
-class ServerActorSpec(_system: ActorSystem) extends TestKit(_system) with ImplicitSender
+class SystemSpec(_system: ActorSystem) extends TestKit(_system) with ImplicitSender
   with WordSpecLike with Matchers with BeforeAndAfterAll {
  
   def this() = this(ActorSystem("MySpec"))
@@ -17,12 +17,13 @@ class ServerActorSpec(_system: ActorSystem) extends TestKit(_system) with Implic
     TestKit.shutdownActorSystem(system)
   }
  
-  "A Server actor" must {
-    "receive greets" in {
+  "The system" must {
+    "bootstrap" in {
       val serverActor = system.actorOf(ServerActor.props, "server")
-      serverActor ! ServerActor.WriterGreet
+      val readerActor = system.actorOf(ReaderActor.props(serverActor), "reader")
+      val writerActor = system.actorOf(WriterActor.props(serverActor), "writer")
       Thread.sleep(1000)
-      system.stop(serverActor)
+      system.stop(readerActor)
     }
   }
 }

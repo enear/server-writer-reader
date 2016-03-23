@@ -2,11 +2,17 @@ package com.example
 
 import akka.actor.ActorSystem
 
-object ApplicationMain extends App {
+object ServerMain extends App {
   val system = ActorSystem()
   val serverActor = system.actorOf(ServerActor.props, "serverActor")
-  
-  // This example app will ping pong 3 times and thereafter terminate the ActorSystem - 
-  // see counter logic in PingActor
-  system.awaitTermination()
+}
+
+object ReaderMain extends App {
+  val system = ActorSystem()
+  val readerActor = system.actorOf(ReaderActor.props(???), "readerActor")
+}
+
+object WriterMain extends App {
+  val system = ActorSystem()
+  val writerActor = system.actorOf(WriterActor.props(???), "writerActor")
 }
