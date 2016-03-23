@@ -4,6 +4,8 @@ import akka.actor.{Actor, ActorRef, ActorLogging, Props}
 import akka.persistence._
 import java.util.UUID
 
+import scala.collection.mutable
+
 class ServerActor extends PersistentActor with ActorLogging {
   import ServerActor._
   
@@ -49,9 +51,10 @@ object ServerActor {
 
 class WriterActor(serverActor: ActorRef) extends Actor with ActorLogging {
   import WriterActor._
-  import ServerActor.WriterGreet
+  import ServerActor._
 
   override def preStart() = {
+    log.info("Starting - greeting server actor")
     serverActor ! WriterGreet
   }
 
@@ -60,7 +63,7 @@ class WriterActor(serverActor: ActorRef) extends Actor with ActorLogging {
       log.info(s"Received a write request for offset: $offset and length: $length")
 
       (1 to length).foldLeft(offset) { (accum, next) =>
-        serverActor ! accum
+        serverActor ! WriterData(accum)
         accum + 1
       }
   }
@@ -72,9 +75,37 @@ object WriterActor {
 
 class ReaderActor(serverActor: ActorRef) extends Actor with ActorLogging {
   import ReaderActor._
+  import ServerActor.ReaderRequest
+  import scala.collection.mutable.HashMap
+
+  val idMap = new HashMap[UUID, Int]
+
+  override def preStart() = {
+    log.info("Starting - creating 1000 random UUIDs")
+    (1 to 1000) foreach { _ =>
+      val id = UUID.randomUUID()
+      idMap.put(id, 0)
+      serverActor ! ReaderRequest(id, 0)
+    }
+  }
   
-  def receive: Receive = Actor.emptyBehavior
+  def receive: Receive = {
+    case SequenceUpdate(id, count) if count > -1 =>
+      log.info(s"Received an update for id: $id and count: $count")
+      idMap.put(id, count)
+
+    case SequenceUpdate(id, count) if count == -1 =>
+      log.info(s"Received a deletion for id: $id")
+      idMap.remove(id)
+      serverActor ! RemoveId(id)
+      val newId = UUID.randomUUID()
+      idMap.put(newId, 0)
+      serverActor ! ReaderRequest(id, 0)
+  }
 }
+
 object ReaderActor {
   def props(server: ActorRef) = Props(classOf[ReaderActor], server)
+  case class SequenceUpdate(uuid: UUID, count: Int)
+  case class RemoveId(uuid: UUID)
 }
