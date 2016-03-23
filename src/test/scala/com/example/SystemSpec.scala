@@ -20,8 +20,8 @@ class SystemSpec(_system: ActorSystem) extends TestKit(_system) with ImplicitSen
   "The system" must {
     "bootstrap" in {
       val serverActor = system.actorOf(ServerActor.props, "server")
-      val readerActor = system.actorOf(ReaderActor.props(serverActor), "reader")
-      val writerActor = system.actorOf(WriterActor.props(serverActor), "writer")
+      val readerActor = system.actorOf(ReaderActor.props(system.actorSelection(serverActor.path)), "reader")
+      val writerActor = system.actorOf(WriterActor.props(system.actorSelection(serverActor.path)), "writer")
       Thread.sleep(1000)
       system.stop(readerActor)
     }

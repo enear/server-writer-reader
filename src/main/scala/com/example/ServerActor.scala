@@ -1,6 +1,6 @@
 package com.example
 
-import akka.actor.{Actor, ActorRef, ActorLogging, Props}
+import akka.actor.{Actor, ActorLogging, ActorSelection, Props}
 import akka.persistence._
 import java.util.UUID
 
@@ -24,8 +24,10 @@ class ServerActor extends PersistentActor with ActorLogging {
     case WriterGreet => 
 	    log.info("In ServerActor - greet")
     case WriterData(i) => 
+      log.info("In ServerActor - WriterData")
       persist(WriterEvt(UUID.randomUUID(), i))(updateState)
     case ReaderRequest(uuid, i) => 
+      log.info("In ServerActor - Reader Request")
       persist(ReaderEvt(uuid, i))(updateState)
 //    case Cmd(data) =>
 //      persist(Evt(s"${data}-${numEvents}"))(updateState)
@@ -49,7 +51,7 @@ object ServerActor {
   case class WriterEvt(uuid: UUID, int: Int) extends Evt
 }
 
-class WriterActor(serverActor: ActorRef) extends Actor with ActorLogging {
+class WriterActor(serverActor: ActorSelection) extends Actor with ActorLogging {
   import WriterActor._
   import ServerActor._
 
@@ -69,11 +71,11 @@ class WriterActor(serverActor: ActorRef) extends Actor with ActorLogging {
   }
 }
 object WriterActor {
-  def props(server: ActorRef) = Props(classOf[WriterActor], server)
+  def props(server: ActorSelection) = Props(classOf[WriterActor], server)
   case class RequestData(offset: Int, length: Int)
 }
 
-class ReaderActor(serverActor: ActorRef) extends Actor with ActorLogging {
+class ReaderActor(serverActor: ActorSelection) extends Actor with ActorLogging {
   import ReaderActor._
   import ServerActor.ReaderRequest
   import scala.collection.mutable.HashMap
@@ -105,7 +107,7 @@ class ReaderActor(serverActor: ActorRef) extends Actor with ActorLogging {
 }
 
 object ReaderActor {
-  def props(server: ActorRef) = Props(classOf[ReaderActor], server)
+  def props(server: ActorSelection) = Props(classOf[ReaderActor], server)
   case class SequenceUpdate(uuid: UUID, count: Int)
   case class RemoveId(uuid: UUID)
 }

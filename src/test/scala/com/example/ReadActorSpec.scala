@@ -21,7 +21,7 @@ class ReadActorSpec extends TestKit(ActorSystem("ReaderActorSpec")) with Implici
   val serverActor = TestProbe()
 
   "A Read Actor " must {
-    val testReadActor = TestActorRef[ReaderActor](ReaderActor.props(serverActor.ref))
+    val testReadActor = TestActorRef[ReaderActor](ReaderActor.props(system.actorSelection(serverActor.ref.path)))
     var messages = Seq[ReaderRequest]()
 
     "send 1000 new UUIDs to the server" in {

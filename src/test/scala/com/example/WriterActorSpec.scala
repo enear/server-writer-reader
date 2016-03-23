@@ -20,7 +20,7 @@ class WriterActorSpec extends TestKit(ActorSystem("WriterActorSpec")) with Impli
   val serverActor = TestProbe()
 
   "A Writer Actor " must {
-    val writerActor = system.actorOf(WriterActor.props(serverActor.ref), "writerActor")
+    val writerActor = system.actorOf(WriterActor.props(system.actorSelection(serverActor.ref.path)), "writerActor")
     "sends greets" in {
       serverActor.expectMsg(500.millis, WriterGreet)
     }
