@@ -14,3 +14,9 @@ libraryDependencies ++= Seq(
   "org.scalatest" %% "scalatest" % "2.2.4" % "test")
   
 fork := true
+cancelable in Global := true
+
+enablePlugins(JavaAppPackaging)
+enablePlugins(DockerPlugin)
+
+
