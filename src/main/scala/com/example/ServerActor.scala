@@ -4,7 +4,6 @@ import akka.actor.{Actor, ActorRef, ActorLogging, Props}
 import akka.persistence._
 import java.util.UUID
 
-
 class ServerActor extends PersistentActor with ActorLogging {
   import ServerActor._
   
@@ -50,11 +49,24 @@ object ServerActor {
 
 class WriterActor(serverActor: ActorRef) extends Actor with ActorLogging {
   import WriterActor._
-  
-  def receive: Receive = Actor.emptyBehavior
+  import ServerActor.WriterGreet
+
+  override def preStart() = {
+    serverActor ! WriterGreet
+  }
+
+  def receive: Receive = {
+    case RequestData(offset,length) =>
+      log.info(s"Received a write request for offset: $offset and length: $length")
+
+      (1 to length).foldLeft(offset) { (accum, next) =>
+        serverActor ! accum
+        accum + 1
+      }
+  }
 }
 object WriterActor {
-  def props(server: ActorRef) = Props(classOf[ReaderActor], server)
+  def props(server: ActorRef) = Props(classOf[WriterActor], server)
   case class RequestData(offset: Int, length: Int)
 }
 
