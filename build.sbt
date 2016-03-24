@@ -35,4 +35,7 @@ cancelable in Global := true
 enablePlugins(JavaAppPackaging)
 enablePlugins(DockerPlugin)
 
+dockerExposedVolumes in Docker := Seq("/opt/docker/journal")
+dockerExposedPorts in Docker := Seq(2552)
+
 

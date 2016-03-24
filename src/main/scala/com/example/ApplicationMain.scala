@@ -21,14 +21,20 @@ object Main {
   }
   
   def startWriterSystem() = {
-    val system = ActorSystem("WriterSystem", ConfigFactory.load("writer"))
-    val serverSelection = system.actorSelection("akka.tcp://ServerSystem@127.0.0.1:2552/user/serverActor")
+    val config = ConfigFactory.load("writer")
+    val serverHost = config.getString("serverHost")
+    val serverPort = config.getInt("serverPort")
+    val system = ActorSystem("WriterSystem", config)
+    val serverSelection = system.actorSelection(s"akka.tcp://ServerSystem@$serverHost:$serverPort/user/serverActor")
     val writerActor = system.actorOf(WriterActor.props(serverSelection), "writerActor")
   }
   
   def startReaderSystem() = {
-    val system = ActorSystem("ReaderSystem", ConfigFactory.load("reader"))
-    val serverSelection = system.actorSelection("akka.tcp://ServerSystem@127.0.0.1:2552/user/serverActor")
+    val config = ConfigFactory.load("reader")
+    val serverHost = config.getString("serverHost")
+    val serverPort = config.getInt("serverPort")
+    val system = ActorSystem("ReaderSystem", config)
+    val serverSelection = system.actorSelection(s"akka.tcp://ServerSystem@$serverHost:$serverPort/user/serverActor")
     val readerActor = system.actorOf(ReaderActor.props(serverSelection), "readerActor")
   }
 }

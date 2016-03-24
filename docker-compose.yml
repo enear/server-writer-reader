@@ -1,0 +1,31 @@
+server:
+  image: server-writer-reader:1.0
+  links:
+    - kamon
+  ports:
+    - "2552"
+  command: Server -DserverHost=server -Dakka.persistence.journal.leveldb.dir=journal
+  
+writer:
+  image: server-writer-reader:1.0
+  links:
+  - server
+  - kamon
+  command: Writer -DserverHost=server
+  
+reader:
+  image: server-writer-reader:1.0
+  links:
+    - server
+    - kamon
+  command: Reader -DserverHost=server
+
+kamon:
+  image: sphonic/kamon_grafana_graphite
+  ports:
+   - "80:80"
+   - "81:81"
+   - "8125:8125/udp"
+   - "8126:8126"
+  mem_limit: 1G
+  memswap_limit: 1G
