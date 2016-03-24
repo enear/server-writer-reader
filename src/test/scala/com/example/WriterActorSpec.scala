@@ -26,7 +26,7 @@ class WriterActorSpec extends TestKit(ActorSystem("WriterActorSpec")) with Impli
     }
 
     "iterate from offset to length for a received write request" in {
-      writerActor ! RequestData(5,3)
+      serverActor.send(writerActor, RequestData(5,3))
       serverActor.expectMsg(500.millis, WriterData(5))
       serverActor.expectMsg(500.millis, WriterData(6))
       serverActor.expectMsg(500.millis, WriterData(7))
