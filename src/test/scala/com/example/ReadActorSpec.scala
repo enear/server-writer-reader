@@ -36,12 +36,12 @@ class ReadActorSpec extends TestKit(ActorSystem("ReaderActorSpec")) with Implici
 
       for {
         id <- subsetIds
-        update <- 1 to 10
+        update <- 0 to 9
       } testReadActor ! SequenceUpdate(id, update)
 
       val actorState = testReadActor.underlyingActor.idMap
       subsetIds foreach { id =>
-        actorState.get(id) shouldEqual Some(10)
+        actorState.get(id) shouldEqual Some(9)
       }
     }
 
@@ -56,12 +56,6 @@ class ReadActorSpec extends TestKit(ActorSystem("ReaderActorSpec")) with Implici
       subsetIds foreach { id =>
         actorState.get(id) shouldEqual None
       }
-
     }
-
-
   }
-
-
-
 }
