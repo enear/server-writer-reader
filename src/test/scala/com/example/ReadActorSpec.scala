@@ -1,16 +1,11 @@
 package com.example
 
 import akka.actor.ActorSystem
-import akka.testkit.{TestActorRef, TestProbe, ImplicitSender, TestKit}
+import akka.testkit.{ImplicitSender, TestActorRef, TestKit, TestProbe}
 import com.example.ReaderActor.SequenceUpdate
 import com.example.ServerActor.ReaderRequest
 import org.scalatest.{BeforeAndAfterAll, Matchers, WordSpecLike}
 
-import scala.collection.mutable
-
-/**
-  * Created by luis on 23-03-2016.
-  */
 class ReadActorSpec extends TestKit(ActorSystem("ReaderActorSpec")) with ImplicitSender
   with WordSpecLike with Matchers with BeforeAndAfterAll {
 

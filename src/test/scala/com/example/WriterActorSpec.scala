@@ -7,9 +7,6 @@ import com.example.WriterActor.RequestData
 import org.scalatest.{WordSpecLike, BeforeAndAfterAll, Matchers}
 import scala.concurrent.duration._
 
-/**
-  * Created by luis on 23-03-2016.
-  */
 class WriterActorSpec extends TestKit(ActorSystem("WriterActorSpec")) with ImplicitSender
   with WordSpecLike with Matchers with BeforeAndAfterAll {
 
