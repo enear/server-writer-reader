@@ -1,6 +1,6 @@
 package com.example
 
-import akka.actor.{Actor, ActorLogging, ActorSelection, Props}
+import akka.actor._
 import akka.persistence._
 import java.util.UUID
 
@@ -54,21 +54,38 @@ object ServerActor {
 class WriterActor(serverActor: ActorSelection) extends Actor with ActorLogging {
   import WriterActor._
   import ServerActor._
+  
+  val correlationId = UUID.randomUUID()
 
   override def preStart() = {
-    log.info("Starting - greeting server actor")
-    serverActor ! WriterGreet
+    log.info("Indentifying server")
+    serverActor ! Identify(correlationId)
   }
 
   def receive: Receive = {
+    case ActorIdentity(`correlationId`, Some(server)) =>
+      log.info(s"Identified $server Greeting")
+      context.watch(server)
+      server ! WriterGreet
+    case ActorIdentity(`correlationId`, None) => 
+      log.warning("No server identified. Restarting...")
+      self ! PoisonPill
+    case ActorIdentity(_,_) =>
+      log.warning("Server identified with wrong correlationId. Restarting...")
+      self ! PoisonPill
+      
     case RequestData(offset,length) =>
       log.info(s"Received a write request for offset: $offset and length: $length")
 
       (1 to length).foldLeft(offset) { (accum, next) =>
-        serverActor ! WriterData(accum)
+        sender ! WriterData(accum)
         accum + 1
       }
+      case Terminated(s) =>
+        log.info(s"server $s terminated. Restarting...")
+        self ! PoisonPill
   }
+  
 }
 object WriterActor {
   def props(server: ActorSelection) = Props(classOf[WriterActor], server)
@@ -81,17 +98,29 @@ class ReaderActor(serverActor: ActorSelection) extends Actor with ActorLogging {
   import scala.collection.mutable.HashMap
 
   val idMap = new HashMap[UUID, Int]
+  val correlationId = UUID.randomUUID()
 
   override def preStart() = {
-    log.info("Starting - creating 1000 random UUIDs")
-    (1 to 1000) foreach { _ =>
-      val id = UUID.randomUUID()
-      idMap.put(id, 0)
-      serverActor ! ReaderRequest(id, 0)
-    }
+    log.info("Indentifying server")
+    serverActor ! Identify(correlationId)
   }
   
   def receive: Receive = {
+    case ActorIdentity(`correlationId`, Some(server)) =>
+      log.info(s"Identified $server Starting - creating 1000 random UUIDs")
+      context.watch(server)
+      (1 to 1000) foreach { _ =>
+        val id = UUID.randomUUID()
+        idMap.put(id, 0)
+        server ! ReaderRequest(id, 0)
+      }
+    case ActorIdentity(`correlationId`, None) => 
+      log.warning("No server identified. Restarting...")
+      self ! PoisonPill
+    case ActorIdentity(_,_) =>
+      log.warning("Server identified with wrong correlationId. Restarting...")
+      self ! PoisonPill
+      
     case SequenceUpdate(id, count) if count > -1 =>
       log.info(s"Received an update for id: $id and count: $count")
       idMap.put(id, count)
@@ -99,10 +128,14 @@ class ReaderActor(serverActor: ActorSelection) extends Actor with ActorLogging {
     case SequenceUpdate(id, count) if count == -1 =>
       log.info(s"Received a deletion for id: $id")
       idMap.remove(id)
-      serverActor ! RemoveId(id)
+      sender ! RemoveId(id)
       val newId = UUID.randomUUID()
       idMap.put(newId, 0)
-      serverActor ! ReaderRequest(id, 0)
+      sender ! ReaderRequest(id, 0)
+      
+    case Terminated(s) =>
+      log.warning(s"server $s terminated. Restarting...")
+      self ! PoisonPill
   }
 }
 
