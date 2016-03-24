@@ -19,7 +19,9 @@ object Main {
   
   def startServerSystem() = {
     val system = ActorSystem("ServerSystem", ConfigFactory.load("server"))
+    import system.dispatcher
     val serverActor = system.actorOf(ServerActor.props, "serverActor")
+    system.scheduler.schedule(1 second, 5 seconds){serverActor ! "print"}
   }
   
   def startWriterSystem() = {

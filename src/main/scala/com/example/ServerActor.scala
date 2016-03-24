@@ -5,12 +5,10 @@ import akka.persistence._
 import java.util.UUID
 
 import scala.collection.mutable.Queue
-
+import scala.collection.mutable.HashMap
 
 class ServerActor extends PersistentActor with ActorLogging {
   import ServerActor._
-  import WriterActor.RequestData
-  import com.example.ReaderActor.{SequenceUpdate, RemoveId}
 
   override def persistenceId = "sample-id-1"
   var currentState: Option[(UUID, Int)] = None
@@ -30,6 +28,11 @@ class ServerActor extends PersistentActor with ActorLogging {
         currentState = Some(idQueue.dequeue(), 0); currentState.get
     }
   }
+  
+  def printState() = {
+    val entries = idQueue.length
+    log.info(s"Current state contains $entries")
+  }
 
   val receiveRecover: Receive = {
     case evt: Evt => updateState(evt)
@@ -38,41 +41,46 @@ class ServerActor extends PersistentActor with ActorLogging {
 
   val receiveCommand: Receive = {
     case WriterGreet =>
-	    log.info("In ServerActor - greet")
+	    log.debug("In ServerActor - greet")
       writerActor = Some(sender())
+      unstashAll()
 
     case WriterData(count) =>
       currentState match {
         case Some((id, _)) =>
-          log.info("In ServerActor - WriterData")
+          log.debug("In ServerActor - WriterData")
           persist(WriterEvt(id, count)) { event =>
             updateState(event)
             readerActor
               .fold { log.error("In ServerActor - Received a write message but no reader actor is assigned") }
               { reader =>
-                reader ! SequenceUpdate(id, count)
-                if(count == 9) reader ! SequenceUpdate(id, -1)
+                reader ! ReaderActor.SequenceUpdate(id, count)
+                if(count == 9) reader ! ReaderActor.SequenceUpdate(id, -1)
               }
           }
         case None => log.error("In ServerActor - Received a write message but no currentId is assigned")
       }
 
     case ReaderRequest(uuid, count) =>
-      log.info("In ServerActor - Reader Request")
-
-      if(readerActor.isEmpty) readerActor = Some(sender())
-      persist(ReaderEvt(uuid)){ event =>
-        val (_ , currentCount) = updateState(event)
-
-        if(currentCount < 10)
-          writerActor
-            .fold { log.error("In ServerActor - Received a read message but no writer actor is assigned") }
-            {_ ! RequestData(currentCount, 10 - currentCount)}
+      log.debug("In ServerActor - Reader Request")
+      writerActor match {
+        case None =>
+          log.debug("In ServerActor - Received a read message but no writer actor is assigned. Stashing...")
+          stash()
+        case Some(writerActor) => 
+          if(readerActor.isEmpty) readerActor = Some(sender())
+          persist(ReaderEvt(uuid)){ event =>
+            val (_ , currentCount) = updateState(event)
+            if(currentCount < 10)
+              writerActor ! WriterActor.RequestData(currentCount, 10 - currentCount)
+          }
       }
 
     case RemoveId(id) =>
-      log.info("In ServerActor - Remove ID")
+      log.debug("In ServerActor - Remove ID")
       persist(RemoveIdEvt(id)){updateState(_)}
+      
+    case "print" => printState()
   }
 }
 
@@ -81,6 +89,7 @@ object ServerActor {
   case object WriterGreet
   case class WriterData(i: Int)
   case class ReaderRequest(uuid: UUID, i: Int)
+  case class RemoveId(uuid: UUID)
 
   sealed trait Evt
   case class ReaderEvt(uuid: UUID) extends Evt
@@ -95,13 +104,13 @@ class WriterActor(serverActor: ActorSelection) extends Actor with ActorLogging {
   val correlationId = UUID.randomUUID()
 
   override def preStart() = {
-    log.info("Indentifying server")
+    log.debug("Indentifying server")
     serverActor ! Identify(correlationId)
   }
 
   def receive: Receive = {
     case ActorIdentity(`correlationId`, Some(server)) =>
-      log.info(s"Identified $server Greeting")
+      log.debug(s"Identified $server Greeting")
       context.watch(server)
       server ! WriterGreet
     case ActorIdentity(`correlationId`, None) => 
@@ -112,15 +121,15 @@ class WriterActor(serverActor: ActorSelection) extends Actor with ActorLogging {
       self ! PoisonPill
       
     case RequestData(offset,length) =>
-      log.info(s"Received a write request for offset: $offset and length: $length")
+      log.debug(s"Received a write request for offset: $offset and length: $length")
 
       (1 to length).foldLeft(offset) { (accum, next) =>
         sender ! WriterData(accum)
         accum + 1
       }
-      case Terminated(s) =>
-        log.info(s"server $s terminated. Restarting...")
-        self ! PoisonPill
+    case Terminated(s) =>
+      log.warning(s"server $s terminated. Restarting...")
+      self ! PoisonPill
   }
   
 }
@@ -132,25 +141,23 @@ object WriterActor {
 
 class ReaderActor(serverActor: ActorSelection) extends Actor with ActorLogging {
   import ReaderActor._
-  import ServerActor.ReaderRequest
-  import scala.collection.mutable.HashMap
 
   val idMap = new HashMap[UUID, Int]
   val correlationId = UUID.randomUUID()
 
   override def preStart() = {
-    log.info("Indentifying server")
+    log.debug("Indentifying server")
     serverActor ! Identify(correlationId)
   }
 
   def receive: Receive = {
     case ActorIdentity(`correlationId`, Some(server)) =>
-      log.info(s"Identified $server Starting - creating 1000 random UUIDs")
+      log.debug(s"Identified $server Starting - creating 1000 random UUIDs")
       context.watch(server)
       (1 to 1000) foreach { _ =>
         val id = UUID.randomUUID()
         idMap.put(id, 0)
-        server ! ReaderRequest(id, 0)
+        server ! ServerActor.ReaderRequest(id, 0)
       }
     case ActorIdentity(`correlationId`, None) => 
       log.warning("No server identified. Restarting...")
@@ -160,16 +167,16 @@ class ReaderActor(serverActor: ActorSelection) extends Actor with ActorLogging {
       self ! PoisonPill
       
     case SequenceUpdate(id, count) if count > -1 =>
-      log.info(s"Received an update for id: $id and count: $count")
+      log.debug(s"Received an update for id: $id and count: $count")
       idMap.put(id, count)
 
     case SequenceUpdate(id, count) if count == -1 =>
-      log.info(s"Received a deletion for id: $id")
+      log.debug(s"Received a deletion for id: $id")
       idMap.remove(id)
-      sender ! RemoveId(id)
+      sender ! ServerActor.RemoveId(id)
       val newId = UUID.randomUUID()
       idMap.put(newId, 0)
-      sender ! ReaderRequest(id, 0)
+      sender ! ServerActor.ReaderRequest(id, 0)
       
     case Terminated(s) =>
       log.warning(s"server $s terminated. Restarting...")
@@ -180,5 +187,4 @@ class ReaderActor(serverActor: ActorSelection) extends Actor with ActorLogging {
 object ReaderActor {
   def props(server: ActorSelection) = Props(classOf[ReaderActor], server)
   case class SequenceUpdate(uuid: UUID, count: Int)
-  case class RemoveId(uuid: UUID)
 }
