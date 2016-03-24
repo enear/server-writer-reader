@@ -38,8 +38,10 @@ object Main {
     val serverHost = config.getString("serverHost")
     val serverPort = config.getInt("serverPort")
     val system = ActorSystem("ReaderSystem", config)
+    import system.dispatcher
     val serverSelection = system.actorSelection(s"akka.tcp://ServerSystem@$serverHost:$serverPort/user/serverActor")
     val readerActor = supervise(system, ReaderActor.props(serverSelection), "readerActor")
+    system.scheduler.schedule(1 second, 1 seconds){readerActor ! ReaderActor.ReadMore}
   }
   
   def supervise(system: ActorSystem, childProps: Props, childName: String) = {

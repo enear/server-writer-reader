@@ -151,7 +151,7 @@ object WriterActor {
   case class RequestData(offset: Int, length: Int)
 }
 
-class ReaderActor(serverActor: ActorSelection) extends Actor with ActorLogging {
+class ReaderActor(serverActor: ActorSelection, nrSequences: Int) extends Actor with ActorLogging {
   import ReaderActor._
 
   val idMap = new HashMap[UUID, Int]
@@ -164,9 +164,9 @@ class ReaderActor(serverActor: ActorSelection) extends Actor with ActorLogging {
 
   def receive: Receive = {
     case ActorIdentity(`correlationId`, Some(server)) =>
-      log.debug(s"Identified $server Starting - creating 1000 random UUIDs")
+      log.debug(s"Identified $server Starting - creating $nrSequences random UUIDs")
       context.watch(server)
-      (1 to 1000) foreach { _ =>
+      (1 to nrSequences) foreach { _ =>
         val id = UUID.randomUUID()
         idMap.put(id, 0)
         server ! ServerActor.ReaderRequest(id, 0)
@@ -186,10 +186,16 @@ class ReaderActor(serverActor: ActorSelection) extends Actor with ActorLogging {
       log.debug(s"Received a deletion for id: $id")
       idMap.remove(id)
       sender ! ServerActor.RemoveId(id)
-      val newId = UUID.randomUUID()
-      idMap.put(newId, 0)
-      sender ! ServerActor.ReaderRequest(newId, 0)
-
+      
+    case ReadMore =>
+      val remaining = (nrSequences - idMap.size)
+      log.debug(s"creating $remaining random UUIDs")
+      (1 to remaining) foreach {_ =>
+        val newId = UUID.randomUUID()
+        idMap.put(newId, 0)
+        sender ! ServerActor.ReaderRequest(newId, 0)
+      }
+      
     case Terminated(s) =>
       log.warning(s"server $s terminated. Restarting...")
       self ! PoisonPill
@@ -197,6 +203,7 @@ class ReaderActor(serverActor: ActorSelection) extends Actor with ActorLogging {
 }
 
 object ReaderActor {
-  def props(server: ActorSelection) = Props(classOf[ReaderActor], server)
+  def props(server: ActorSelection, nrSequences: Int = 1000) = Props(classOf[ReaderActor], server, nrSequences)
   case class SequenceUpdate(uuid: UUID, count: Int)
+  case object ReadMore
 }
