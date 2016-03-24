@@ -2,9 +2,11 @@ package com.example
 
 import akka.actor.{ActorSystem,Identify}
 import com.typesafe.config.ConfigFactory
+import kamon.Kamon
 
 object Main {
   def main(args: Array[String]): Unit = {
+	  Kamon.start()
     if (args.isEmpty || args.head == "Server")
       startServerSystem()
     if (args.isEmpty || args.head == "Writer")
