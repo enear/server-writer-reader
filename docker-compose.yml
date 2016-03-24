@@ -4,21 +4,21 @@ server:
     - kamon
   ports:
     - "2552"
-  command: Server -DserverHost=server -Dakka.persistence.journal.leveldb.dir=journal
+  command: Server -DserverHost=server -Dakka.persistence.journal.leveldb.dir=journal -Dkamon.statsd.hostname=statsd
   
 writer:
   image: server-writer-reader:1.0
   links:
   - server
   - kamon
-  command: Writer -DserverHost=server
+  command: Writer -DserverHost=server -Dkamon.statsd.hostname=statsd
   
 reader:
   image: server-writer-reader:1.0
   links:
     - server
     - kamon
-  command: Reader -DserverHost=server
+  command: Reader -DserverHost=server -Dkamon.statsd.hostname=statsd
 
 kamon:
   image: sphonic/kamon_grafana_graphite
