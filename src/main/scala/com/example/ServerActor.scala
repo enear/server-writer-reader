@@ -25,9 +25,11 @@ class ServerActor extends PersistentActor with ActorLogging {
         currentState.fold { currentState = Some(id, 1) }  { _ => idQueue.enqueue(id) }
       case RemoveIdEvt(id) =>
         idQueue.size match {
-          case 0 => log.debug("In ServerActor - Tried to dequeue but no UUIDs left to process")
+          case 0 => 
+            log.debug("In ServerActor - Tried to dequeue but no UUIDs left to process")
             currentState = None
-          case n => currentState = Some(idQueue.dequeue(), 1)
+          case n =>
+            currentState = Some(idQueue.dequeue(), 1)
         }
     }
   }
@@ -38,6 +40,9 @@ class ServerActor extends PersistentActor with ActorLogging {
   }
 
   val receiveRecover: Receive = {
+    case RecoveryCompleted => currentState foreach {
+      case ((_, count)) => self ! WriterRequest(count+1)
+    }
     case evt: Evt => updateState(evt)
     //    case SnapshotOffer(_, snapshot) => () //state = snapshot
   }

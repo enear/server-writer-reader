@@ -16,6 +16,8 @@ libraryDependencies ++= Seq(
   "org.iq80.leveldb"  % "leveldb" % "0.7",
   "org.fusesource.leveldbjni" % "leveldbjni-all" % "1.8",
   
+  "com.github.romix.akka" %% "akka-kryo-serialization" % "0.4.0",
+  
   "com.typesafe.akka" %% "akka-slf4j" % "2.4.2",
   "ch.qos.logback" % "logback-classic" % "1.1.3",
   
