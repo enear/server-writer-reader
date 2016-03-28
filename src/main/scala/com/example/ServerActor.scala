@@ -58,7 +58,7 @@ class ServerActor extends PersistentActor with ActorLogging {
               .fold { log.error("In ServerActor - Received a write message but no reader actor is assigned") }
               { reader =>
                 reader ! ReaderActor.SequenceUpdate(id, count)
-                if(count == 9) reader ! ReaderActor.SequenceUpdate(id, -1)
+                if(count == 10) reader ! ReaderActor.SequenceUpdate(id, -1)
               }
           }
         case None => log.error("In ServerActor - Received a write message but no currentId is assigned")

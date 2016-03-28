@@ -24,8 +24,8 @@ class ServerActorSpec extends TestKit(ActorSystem("ServerActorSpec")) with Impli
   writerActor.setAutoPilot(new TestActor.AutoPilot {
   def run(sender: ActorRef, msg: Any): TestActor.AutoPilot =
     msg match {
-      case RequestData(0, 10) ⇒ {
-        (0 to 9) foreach { i => sender ! WriterData(i) }
+      case RequestData(1, 10) ⇒ {
+        (1 to 10) foreach { i => sender ! WriterData(i) }
         TestActor.KeepRunning
       }
     }
@@ -42,7 +42,7 @@ class ServerActorSpec extends TestKit(ActorSystem("ServerActorSpec")) with Impli
       val id1 = UUID.randomUUID()
       val id2 = UUID.randomUUID()
       readerActor.send(serverActor, ReaderRequest(id1, 0))
-      writerActor.expectMsg(5000.millis, RequestData(0, 10))
+      writerActor.expectMsg(5000.millis, RequestData(1, 10))
       val updates1 = readerActor.receiveN(10) map (_.asInstanceOf[SequenceUpdate])
       updates1 map(_.count) shouldBe sorted
       readerActor.expectMsg(500.millis, SequenceUpdate(id1, -1))
