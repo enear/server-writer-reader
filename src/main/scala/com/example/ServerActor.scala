@@ -51,16 +51,10 @@ class ServerActor extends PersistentActor with ActorLogging {
     case WriterData(count) =>
       currentState match {
         case Some((id, _)) =>
-          log.debug("In ServerActor - WriterData")
-          persist(WriterEvt(id, count)) { event =>
-            updateState(event)
-            readerActor
-              .fold { log.error("In ServerActor - Received a write message but no reader actor is assigned") }
-              { reader =>
-                reader ! ReaderActor.SequenceUpdate(id, count)
-                if(count == 10) reader ! ReaderActor.SequenceUpdate(id, -1)
-              }
-          }
+          log.debug(s"In ServerActor - WriterData for id $id and count $count")
+          readerActor
+            .fold { log.error("In ServerActor - Received a write message but no reader actor is assigned") }
+            { reader => reader ! ReaderActor.SequenceUpdate(id, count) }
         case None => log.error("In ServerActor - Received a write message but no currentId is assigned")
       }
 
@@ -80,6 +74,30 @@ class ServerActor extends PersistentActor with ActorLogging {
         }
       }
 
+    case Acknowledge(uuid) =>
+      log.debug(s"In ServerActor - Reader acknowledged an update for id $uuid")
+      currentState match {
+        case Some((id, count)) if uuid == id =>
+          persist(WriterEvt(id, count)) { event =>
+            updateState(event)
+            if (count == 10) {
+              readerActor
+                .fold {
+                  log.error("In ServerActor - Received a write message but no reader actor is assigned")
+                } { reader =>
+                  reader ! ReaderActor.SequenceUpdate(id, -1)
+                }
+            } else {
+              self ! WriterRequest(count + 1)
+            }
+          }
+        case Some((id, count)) if uuid != id =>
+          log.warning("In ServerActor - Received acknowledgement from reader but for a different UUID")
+
+        case None =>
+          log.warning("In ServerActor - Received acknowledgement but no current state is assigned")
+       }
+
     case RemoveId(id) =>
       log.debug("In ServerActor - Remove ID")
       persist(RemoveIdEvt(id)) { event =>
@@ -94,7 +112,7 @@ class ServerActor extends PersistentActor with ActorLogging {
       log.debug("In ServerActor - Writer Request")
       writerActor match {
         case Some(writer) =>
-          writer ! RequestData(count, 11 - count)
+          writer ! RequestData(count, 1)
         case None =>
           log.debug("In ServerActor - Received a read message but no writer actor is assigned. Stashing...")
           stash()
@@ -111,6 +129,7 @@ object ServerActor {
   case class ReaderRequest(uuid: UUID, i: Int)
   case class RemoveId(uuid: UUID)
   case class WriterRequest(count: Int)
+  case class Acknowledge(uuid: UUID)
 
   sealed trait Evt
   case class ReaderEvt(uuid: UUID) extends Evt
@@ -166,7 +185,6 @@ class ReaderActor(serverActor: ActorSelection, nrSequences: Int) extends Actor w
   val idMap = new HashMap[UUID, Int]
   var completedSequences = 0l
   val correlationId = UUID.randomUUID()
-  var currentCount = 1
 
   override def preStart() = {
     log.debug("In ReaderActor - Indentifying server")
@@ -191,16 +209,17 @@ class ReaderActor(serverActor: ActorSelection, nrSequences: Int) extends Actor w
 
     case SequenceUpdate(id, count) if count > -1 =>
       log.debug(s"In ReaderActor - Received an update for id: $id and count: $count")
-      if(idMap.contains(id)) {
-        if(currentCount == count) {
+      idMap.get(id) match {
+        case Some(c) if c < count =>
           idMap.put(id, count)
-          currentCount += 1
-        } else {
-          log.warning(s"In ReaderActor - server sent an unordered count for current: $currentCount with countVal: $count for id: $id")
-        }
-
-      } else {
-        log.warning(s"In ReaderActor - map does not contain $id")
+          serverActor ! ServerActor.Acknowledge(id)
+        case Some(c) if c >= count =>
+          log.warning(s"In ReaderActor - server sent an unordered count for id: $id current: $c countReceived: $count")
+//          idMap.put(id, 0)
+//          serverActor ! ServerActor.RemoveId(id)
+//          serverActor ! ServerActor.ReaderRequest(id, 0)
+        case None =>
+          log.warning(s"In ReaderActor - map does not contain $id")
       }
 
     case SequenceUpdate(id, count) if count == -1 =>
@@ -208,18 +227,17 @@ class ReaderActor(serverActor: ActorSelection, nrSequences: Int) extends Actor w
       idMap.remove(id)
       completedSequences += 1
       sender ! ServerActor.RemoveId(id)
-      
+
       log.debug("In ReaderActor - Requesting another sequence...")
       val newId = UUID.randomUUID()
-      currentCount = 1
       idMap.put(newId, 0)
       sender ! ServerActor.ReaderRequest(newId, 0)
-      
+
     case Terminated(s) =>
       log.warning(s"In ReaderActor - server $s terminated. Restarting...")
       self ! PoisonPill
-      
-    case "print" => 
+
+    case "print" =>
       log.info(s"In ReaderActor - Current state contains $completedSequences completed sequences and ${idMap.size} pending sequences")
   }
 }

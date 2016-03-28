@@ -42,7 +42,7 @@ class ServerActorSpec extends TestKit(ActorSystem("ServerActorSpec")) with Impli
       val id1 = UUID.randomUUID()
       val id2 = UUID.randomUUID()
       readerActor.send(serverActor, ReaderRequest(id1, 0))
-      writerActor.expectMsg(5000.millis, RequestData(1, 10))
+      writerActor.expectMsg(5000.millis, RequestData(1,1))
       val updates1 = readerActor.receiveN(10) map (_.asInstanceOf[SequenceUpdate])
       updates1 map(_.count) shouldBe sorted
       readerActor.expectMsg(500.millis, SequenceUpdate(id1, -1))
