@@ -69,7 +69,7 @@ class ServerActor extends PersistentActor with ActorLogging {
       val firstMessage = currentState.isEmpty
       persist(ReaderEvt(uuid)){ event =>
         val (_ , currentCount) = updateState(event)
-        if(!firstMessage)
+        if(firstMessage)
           self ! WriterRequest(currentCount)
         else 
           log.debug("Not first message. Doing nothing")
@@ -156,6 +156,7 @@ class ReaderActor(serverActor: ActorSelection, nrSequences: Int) extends Actor w
   import ReaderActor._
 
   val idMap = new HashMap[UUID, Int]
+  var completedSequences = 0l
   val correlationId = UUID.randomUUID()
 
   override def preStart() = {
@@ -181,30 +182,33 @@ class ReaderActor(serverActor: ActorSelection, nrSequences: Int) extends Actor w
 
     case SequenceUpdate(id, count) if count > -1 =>
       log.debug(s"Received an update for id: $id and count: $count")
-      idMap.put(id, count)
+      if(idMap.contains(id)) {
+        idMap.put(id, count)
+      } else {
+        log.warning(s"map does not contain $id")
+      }
 
     case SequenceUpdate(id, count) if count == -1 =>
       log.debug(s"Received a deletion for id: $id")
       idMap.remove(id)
+      completedSequences += 1
       sender ! ServerActor.RemoveId(id)
       
-    case ReadMore =>
-      val remaining = (nrSequences - idMap.size)
-      log.debug(s"creating $remaining random UUIDs")
-      (1 to remaining) foreach {_ =>
-        val newId = UUID.randomUUID()
-        idMap.put(newId, 0)
-        sender ! ServerActor.ReaderRequest(newId, 0)
-      }
+      log.debug("Requesting another sequence...")
+      val newId = UUID.randomUUID()
+      idMap.put(newId, 0)
+      sender ! ServerActor.ReaderRequest(newId, 0)
       
     case Terminated(s) =>
       log.warning(s"server $s terminated. Restarting...")
       self ! PoisonPill
+      
+    case "print" => 
+      log.info(s"Current state contains $completedSequences completed sequences and ${idMap.size} pending sequences")
   }
 }
 
 object ReaderActor {
   def props(server: ActorSelection, nrSequences: Int = 1000) = Props(classOf[ReaderActor], server, nrSequences)
   case class SequenceUpdate(uuid: UUID, count: Int)
-  case object ReadMore
 }

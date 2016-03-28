@@ -20,8 +20,8 @@ object Main {
   def startServerSystem() = {
     val system = ActorSystem("ServerSystem", ConfigFactory.load("server"))
     import system.dispatcher
-    val serverActor = system.actorOf(ServerActor.props, "serverActor")
-    system.scheduler.schedule(1 second, 5 seconds){serverActor ! "print"}
+    val serverActor = supervise(system, ServerActor.props, "serverActor")
+    system.scheduler.schedule(1 second, 1 seconds){serverActor ! "print"}
   }
   
   def startWriterSystem() = {
@@ -40,20 +40,20 @@ object Main {
     val system = ActorSystem("ReaderSystem", config)
     import system.dispatcher
     val serverSelection = system.actorSelection(s"akka.tcp://ServerSystem@$serverHost:$serverPort/user/serverActor")
-    val readerActor = supervise(system, ReaderActor.props(serverSelection), "readerActor")
-    system.scheduler.schedule(1 second, 1 seconds){readerActor ! ReaderActor.ReadMore}
+    val readerActor = supervise(system, ReaderActor.props(serverSelection, 10), "readerActor")
+    system.scheduler.schedule(1 second, 1 seconds){readerActor ! "print"}
   }
   
-  def supervise(system: ActorSystem, childProps: Props, childName: String) = {
+  def supervise(system: ActorSystem, childProps: Props, name: String) = {
     val supervisor = BackoffSupervisor.props(
       Backoff.onStop(
         childProps,
-        childName = childName,
+        childName = name,
         minBackoff = 3 seconds,
         maxBackoff = 30 seconds,
         randomFactor = 0.2 // adds 20% "noise" to vary the intervals slightly
       ))
-    system.actorOf(supervisor, name = "supervisor")
+    system.actorOf(supervisor, name = name)
 
   }
 }

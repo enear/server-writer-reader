@@ -45,7 +45,6 @@ class ReadActorSpec extends TestKit(ActorSystem("ReaderActorSpec")) with Implici
 
       for (id <- subsetIds) testReadActor ! SequenceUpdate(id, -1)
 
-      testReadActor ! ReadMore
       val actorState = testReadActor.underlyingActor.idMap
       actorState.size shouldEqual 10
 
