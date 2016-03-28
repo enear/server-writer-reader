@@ -69,8 +69,10 @@ class ServerActor extends PersistentActor with ActorLogging {
       val firstMessage = currentState.isEmpty
       persist(ReaderEvt(uuid)){ event =>
         val (_ , currentCount) = updateState(event)
-        if(firstMessage)
+        if(!firstMessage)
           self ! WriterRequest(currentCount)
+        else 
+          log.debug("Not first message. Doing nothing")
       }
 
     case RemoveId(id) =>
@@ -81,10 +83,9 @@ class ServerActor extends PersistentActor with ActorLogging {
       }
 
     case WriterRequest(count) =>
-      println("HUHUEHUEEUHEUHUEEUHUHEUHEUEH")
+      log.debug("In ServerActor - Writer Request")
       writerActor match {
         case Some(writer) =>
-          println("FERREIRA O TESTE DIZ QUE É NONE MAS AQUI PASSA PARA O SOME!!!!!!!!!!! QUE MERDA É ESTA!!!!!!!!!!!!!!!!!!!!! O AKKA DEVIA MORRER E O JONAS BONER SER IMPALADO!!!!!!!!!")
           writer ! RequestData(count, 10 - count)
         case None =>
           log.debug("In ServerActor - Received a read message but no writer actor is assigned. Stashing...")
