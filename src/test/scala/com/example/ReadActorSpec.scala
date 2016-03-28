@@ -26,17 +26,17 @@ class ReadActorSpec extends TestKit(ActorSystem("ReaderActorSpec")) with Implici
       }
     }
 
-    "Correctly update the state of its UUID sequences" in {
-      val subsetIds = messages take 5 map (_.uuid)
+    "Correctly update the state of a UUID sequence" in {
+      val subsetId = messages take 1 map (_.uuid)
 
       for {
-        id <- subsetIds
-        update <- 0 to 9
+        id <- subsetId
+        update <- 1 to 10
       } testReadActor ! SequenceUpdate(id, update)
 
       val actorState = testReadActor.underlyingActor.idMap
-      subsetIds foreach { id =>
-        actorState.get(id) shouldEqual Some(9)
+      subsetId foreach { id =>
+        actorState.get(id) shouldEqual Some(10)
       }
     }
 
