@@ -188,7 +188,10 @@ class ServerActor extends PersistentActor with ActorLogging {
     nrsQueue.headOption match {
       case None => 
         self ! RequestNumbers
-        self ! Retry
+        //do not crush server with retries
+        context.system.scheduler.scheduleOnce(100 milliseconds){
+          self ! Retry
+        }
       case Some(nr) =>
         readerActor match {
           case None => log.warning("In ServerActor - No reader actor is assigned")
