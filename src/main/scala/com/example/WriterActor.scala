@@ -29,6 +29,8 @@ class WriterActor(serverActor: ActorSelection) extends Actor with ActorLogging {
     case RequestData(offset,length) =>
       log.debug(s"Received a write request for offset: $offset and length: $length")
 
+      //iterate from the received offset until length, sending the next numbers
+      //e.g Received (5,3) - Send 5 , 6 , 7
       (1 to length).foldLeft(offset) { (accum, next) =>
         sender ! WriterData(accum)
         accum + 1

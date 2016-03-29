@@ -21,6 +21,7 @@ class ReaderActor(serverActor: ActorSelection, nrSequences: Int) extends Actor w
     case ActorIdentity(`correlationId`, Some(server)) =>
       log.debug(s"In ReaderActor - Identified $server Starting - creating $nrSequences random UUIDs")
       context.watch(server)
+      //start by sending nrSequences to the server to start counting
       (1 to nrSequences) foreach { _ =>
         val id = UUID.randomUUID()
         idMap.put(id, 0)
@@ -36,9 +37,11 @@ class ReaderActor(serverActor: ActorSelection, nrSequences: Int) extends Actor w
     case SequenceUpdate(id, count) if count > -1 =>
       log.debug(s"In ReaderActor - Received an update for id: $id and count: $count")
       idMap.get(id) match {
+        //Received an ordered count, acknowledge it
         case Some(c) if c < count =>
           idMap.put(id, count)
           sender ! ServerActor.Acknowledge(id)
+        //Received an unordered count, restarting it
         case Some(c) if c >= count =>
           log.warning(s"In ReaderActor - server sent an unordered count for id: $id current: $c countReceived: $count")
           idMap.put(id, 0)
@@ -47,9 +50,9 @@ class ReaderActor(serverActor: ActorSelection, nrSequences: Int) extends Actor w
         case None =>
           log.warning(s"In ReaderActor - map does not contain $id. Acknowledging...")
           sender ! ServerActor.Acknowledge(id)
-          
       }
 
+    //Delete the current sequence and request a new one
     case SequenceUpdate(id, count) if count == -1 =>
       log.debug(s"In ReaderActor - Received a deletion for id: $id")
       val removed = idMap.remove(id)

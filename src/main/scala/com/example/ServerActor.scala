@@ -31,6 +31,7 @@ class ServerActor extends PersistentActor with ActorLogging {
   var requestingNumbers = 0
   
   var cancelable: Cancellable = null
+  //Ask for more numbers, if needed, every second
   override def preStart() = {
     log.debug("In ServerActor - preStart scheduling")
     cancelable = context.system.scheduler.schedule(0 seconds, 1 second){
@@ -52,6 +53,7 @@ class ServerActor extends PersistentActor with ActorLogging {
     cmd match {
       case WriterData(int)  =>
       case ReaderRequest(id, _) =>
+        //if we are already processing a sequence, enqueue the incoming id, otherwise start processing it
         currentState match { 
           case None => currentState = Some(id, 1)
           case Some(_) => idQueue.enqueue(id)
@@ -63,6 +65,7 @@ class ServerActor extends PersistentActor with ActorLogging {
           case None => log.warning("In ServerActor - Received an acknowledge for an uuid but no current id assigned")
         }
       case RemoveId(id) =>
+        //if the idQueue is empty, we have no more ids to process, otherwise start processing the next one
         if(idQueue.isEmpty) {
           currentState = None
         }
@@ -124,6 +127,7 @@ class ServerActor extends PersistentActor with ActorLogging {
         case (None, _) => log.warning("In ServerActor - State wrongfully not updated")
       }
 
+    //Receive an acknowledgement from the reader and possibly start processing the next integer for the sequence
     case a@Acknowledge(uuid) =>
       log.debug(s"In ServerActor - Reader acknowledged an update for id $uuid")
       updateReader(sender)
@@ -143,6 +147,7 @@ class ServerActor extends PersistentActor with ActorLogging {
           log.warning("In ServerActor - Received acknowledgement but no current state is assigned")
       }
 
+    //Start processing the next sequence
     case r@RemoveId(id) =>
       log.debug("In ServerActor - Remove ID")
       updateReader(sender)
@@ -183,7 +188,9 @@ class ServerActor extends PersistentActor with ActorLogging {
       
     case "print" => printState()
   }
-  
+
+  //This function sends messages to the reader - If the count is < 11 we're still iterating the current sequence,
+  //if it is equal to 11 we send (id, -1) to tell the reader we're ready to start processing the next sequence.
   def sendToReader(id: UUID, count: Int) = {
     nrsQueue.headOption match {
       case None => 
