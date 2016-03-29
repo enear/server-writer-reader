@@ -19,23 +19,11 @@ class ServerActorSpec extends TestKit(ActorSystem("ServerActorSpec")) with Impli
     TestKit.shutdownActorSystem(system)
   }
 
-  val readerActor = TestProbe()
-  val writerActor = TestProbe()
-  writerActor.setAutoPilot(new TestActor.AutoPilot {
-    def run(sender: ActorRef, msg: Any): TestActor.AutoPilot =
-      msg match {
-        case RequestData(offset, length) ⇒ {
-          (1 to length).foldLeft(offset) { (accum, next) =>
-            sender ! WriterData(accum)
-            accum + 1
-          }
-          TestActor.KeepRunning
-        }
-      }
-  })
+  val readerActor = TestProbe("reader")
+  var writerActor = createWriterProbe()
  
   "A Server actor" must {
-    var serverActor = system.actorOf(ServerActor.props)
+    var serverActor = system.actorOf(ServerActor.props, "server")
 
     "receive greets" in {
       writerActor.send(serverActor, WriterGreet)
@@ -69,11 +57,21 @@ class ServerActorSpec extends TestKit(ActorSystem("ServerActorSpec")) with Impli
       
       serverActor ! Kill
       
-      serverActor = system.actorOf(ServerActor.props)
+      //receive remaining messages
+      val updates3 = readerActor.receiveWhile(){
+        case su@SequenceUpdate(`id3`, i) if i > 0 => readerActor.send(serverActor, Acknowledge(id3)); su
+      }
+      updates3.map(_.count) shouldBe sorted
+      readerActor.expectNoMsg()
+
+      //restart
+      serverActor = system.actorOf(ServerActor.props, "serverRestarted")
       writerActor.send(serverActor, WriterGreet)
       
       val id4 = UUID.randomUUID()
       readerActor.send(serverActor, ReaderRequest(id4, 0))
+      
+      //receive again for id3
       (21 to 30) map { i => 
         readerActor.expectMsg(SequenceUpdate(id3,i))
         readerActor.send(serverActor, Acknowledge(id3))
@@ -81,6 +79,7 @@ class ServerActorSpec extends TestKit(ActorSystem("ServerActorSpec")) with Impli
       readerActor.expectMsg(SequenceUpdate(id3, -1))
       readerActor.send(serverActor, RemoveId(id3))
       
+      //receive now for id4
       (31 to 40) map { i => 
         readerActor.expectMsg(SequenceUpdate(id4,i))
         readerActor.send(serverActor, Acknowledge(id4))
@@ -89,6 +88,38 @@ class ServerActorSpec extends TestKit(ActorSystem("ServerActorSpec")) with Impli
       readerActor.send(serverActor, RemoveId(id4))
 
     }
-
+    
+    "handle writer restarts" in {
+      writerActor.ref ! Kill
+      
+      writerActor = createWriterProbe()
+      writerActor.send(serverActor, WriterGreet)
+      
+      val id5 = UUID.randomUUID()
+      readerActor.send(serverActor, ReaderRequest(id5, 0))
+      (41 to 50) map { i => 
+        readerActor.expectMsg(SequenceUpdate(id5,i))
+        readerActor.send(serverActor, Acknowledge(id5))
+      }
+      readerActor.expectMsg(SequenceUpdate(id5, -1))
+      readerActor.send(serverActor, RemoveId(id5))
+    }
+  }
+  
+  def createWriterProbe() = {
+    val probe = TestProbe("writer")
+    probe.setAutoPilot(new TestActor.AutoPilot {
+      def run(sender: ActorRef, msg: Any): TestActor.AutoPilot =
+        msg match {
+          case RequestData(offset, length) ⇒ {
+            (1 to length).foldLeft(offset) { (accum, next) =>
+              sender ! WriterData(accum)
+              accum + 1
+            }
+            TestActor.KeepRunning
+          }
+        }
+    })
+    probe
   }
 }

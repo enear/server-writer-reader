@@ -10,6 +10,7 @@ import scala.concurrent.duration._
 
 class ServerActor extends PersistentActor with ActorLogging {
   import ServerActor._
+  import context.dispatcher
 
   override def persistenceId = "sample-id-1"
   
@@ -28,6 +29,20 @@ class ServerActor extends PersistentActor with ActorLogging {
   
   //the count of how many numbers to be received from writer 
   var requestingNumbers = 0
+  
+  var cancelable: Cancellable = null
+  override def preStart() = {
+    log.debug("In ServerActor - preStart scheduling")
+    cancelable = context.system.scheduler.schedule(0 seconds, 1 second){
+      self ! RequestNumbers
+    }
+  }
+  
+  override def postStop() = {
+    super.postStop()
+    log.debug("In ServerActor - postStop cancel scheduling")
+    cancelable.cancel()
+  }
   
   def updateState(evt: Evt): Unit = {
     updateSequencesQueue(evt)
@@ -75,11 +90,9 @@ class ServerActor extends PersistentActor with ActorLogging {
 
   val receiveRecover: Receive = {
     case RecoveryCompleted => 
-      import context.dispatcher
+      log.debug("Recovery complete")
       printState()
-      context.system.scheduler.schedule(0 seconds, 1 second){
-        self ! RequestNumbers
-      }
+      currentState.foreach { _ => self ! Retry } //in case we recover to currentState = Some() we need to start replying to reader
     case evt: Evt => updateState(evt);
     //    case SnapshotOffer(_, snapshot) => () //state = snapshot
   }
@@ -88,35 +101,37 @@ class ServerActor extends PersistentActor with ActorLogging {
     case WriterGreet =>
       log.debug("In ServerActor - greet")
       writerActor = Some(sender())
+      requestingNumbers = 0
 
     case WriterData(int) =>
       log.debug(s"In ServerActor - WriterData $int")
-      requestingNumbers -= 1 
       persist(WriterEvt(int)){ event =>
         updateState(event)
+        requestingNumbers -= 1
       }
 
     case ReaderRequest(uuid, count) =>
       log.debug("In ServerActor - Reader Request")
       if(readerActor.isEmpty) readerActor = Some(sender())
-      val firstMessage = currentState.isEmpty
+      val previousState = currentState
       persist(ReaderEvt(uuid)){ event =>
         updateState(event)
-        currentState.fold{ log.warning("In ServerActor - State wrongfully not updated") } { case (id, currentCount) =>
-          if(firstMessage)
-            sendToReader(id, currentCount)
-          else
-            log.debug("Not first message. Doing nothing")
+        (currentState, previousState) match {
+          case (Some((currentId, currentCount)), None) => sendToReader(currentId, currentCount)
+          case (Some((currentId, currentCount)), Some((previousId, previousCount))) => log.debug(s"Already handling a readrequest for ($currentId, $currentCount). Doing nothing")
+          case (None, _) => log.warning("In ServerActor - State wrongfully not updated")
         }
       }
 
     case Acknowledge(uuid) =>
+      log.debug(s"In ServerActor - Reader acknowledged an update for id $uuid")
       currentState match {
-        case Some((id, count)) if uuid == id =>
-          log.debug(s"In ServerActor - Reader acknowledged an update for id $uuid with count $count")
+        case Some((id, _)) if uuid == id =>
           persist(AckEvt(id)) { event =>
             updateState(event)
-            sendToReader(id, count)
+            currentState.fold { log.warning("In ServerActor - no more messages to process") } { case (id, count) =>
+              sendToReader(id, count)
+            }
           }
         case Some((id, count)) if uuid != id =>
           log.warning("In ServerActor - Received acknowledgement from reader but for a different UUID")
@@ -140,19 +155,21 @@ class ServerActor extends PersistentActor with ActorLogging {
       log.debug("In ServerActor - RequestNumbers")
       writerActor match {
         case Some(writer) =>
-          if(requestingNumbers == 0 && nrsQueue.size < 20) {
+          if(requestingNumbers != 0)
+            log.debug("In ServerActor - Already requested numbers")
+          else if(nrsQueue.size >= 20) {
+            log.debug(s"In ServerActor - No numbers necessary. Got ${nrsQueue.size} numbers")
+          } else {
             log.debug("In ServerActor - Requesting Numbers")
             requestingNumbers = ReaderRequestDataLength
             writer ! WriterActor.RequestData(nextWriterNumber, ReaderRequestDataLength)
-          } else {
-            log.debug("In ServerActor - No numbers necessary")
           }
         case None =>
           log.debug("In ServerActor - Received a RequestNumbers message but no writer actor is assigned. ")
       }
       
     case Retry =>
-//      log.debug("In ServerActor - Retry")
+      log.debug("In ServerActor - Retry")
       currentState.fold { log.warning("In ServerActor - no more messages to process") } { case (id, count) =>
         sendToReader(id, count)
       }
@@ -165,15 +182,20 @@ class ServerActor extends PersistentActor with ActorLogging {
         self ! RequestNumbers
         self ! Retry
       case Some(nr) =>
-        log.debug(s"Sending to reader sequence with id $id number $nr with count $count")
         readerActor match {
           case None => log.warning("In ServerActor - No reader actor is assigned")
           case Some(reader) =>
             //count can be 11 after an Ack so we test "count < 11"
-            if(count < 10)
+            if(count < 11) {
+              log.debug(s"Sending to reader sequence with id $id number $nr with count $count")
             	reader ! ReaderActor.SequenceUpdate(id, nr)
-            else 
+            }
+            else if (count == 11){
+              log.debug(s"Sending to reader completion of sequence with id $id (count was $count)")
               reader ! ReaderActor.SequenceUpdate(id, -1)
+            } else {
+              log.warning(s"Already sent termination message. Not sending more...")
+            }
         }
     }
   }
@@ -282,19 +304,25 @@ class ReaderActor(serverActor: ActorSelection, nrSequences: Int) extends Actor w
 //          serverActor ! ServerActor.RemoveId(id)
 //          serverActor ! ServerActor.ReaderRequest(id, 0)
         case None =>
-          log.warning(s"In ReaderActor - map does not contain $id")
+          log.warning(s"In ReaderActor - map does not contain $id. Acknowledging...")
+          sender ! ServerActor.Acknowledge(id)
+          
       }
 
     case SequenceUpdate(id, count) if count == -1 =>
       log.debug(s"In ReaderActor - Received a deletion for id: $id")
-      idMap.remove(id)
+      val removed = idMap.remove(id)
       completedSequences += 1
       sender ! ServerActor.RemoveId(id)
 
-      log.debug("In ReaderActor - Requesting another sequence...")
-      val newId = UUID.randomUUID()
-      idMap.put(newId, 0)
-      sender ! ServerActor.ReaderRequest(newId, 0)
+      if(removed.isDefined) {
+        log.debug("In ReaderActor - Requesting another sequence...")
+        val newId = UUID.randomUUID()
+        idMap.put(newId, 0)
+        sender ! ServerActor.ReaderRequest(newId, 0)
+      } else {
+        log.debug(s"In ReaderActor - Map didn't contain id $id. Not requesting another sequence")
+      }
 
     case Terminated(s) =>
       log.warning(s"In ReaderActor - server $s terminated. Restarting...")
