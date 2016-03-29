@@ -2,6 +2,7 @@ package com.example
 
 import akka.actor._
 import java.util.UUID
+import kamon.Kamon
 
 import scala.collection.mutable.HashMap
 
@@ -10,6 +11,8 @@ class ReaderActor(serverActor: ActorSelection, nrSequences: Int) extends Actor w
 
   val idMap = new HashMap[UUID, Int]
   var completedSequences = 0l
+  val completedSequencesCounter = Kamon.metrics.minMaxCounter("completedSequences")
+  val inFlightCounter = Kamon.metrics.minMaxCounter("inFlightSequences")
   val correlationId = UUID.randomUUID()
 
   override def preStart() = {
@@ -25,6 +28,7 @@ class ReaderActor(serverActor: ActorSelection, nrSequences: Int) extends Actor w
       (1 to nrSequences) foreach { _ =>
         val id = UUID.randomUUID()
         idMap.put(id, 0)
+        inFlightCounter.increment()
         server ! ServerActor.ReaderRequest(id, 0)
       }
     case ActorIdentity(`correlationId`, None) =>
@@ -57,12 +61,15 @@ class ReaderActor(serverActor: ActorSelection, nrSequences: Int) extends Actor w
       log.debug(s"In ReaderActor - Received a deletion for id: $id")
       val removed = idMap.remove(id)
       completedSequences += 1
+      completedSequencesCounter.increment()
+      inFlightCounter.decrement()
       sender ! ServerActor.RemoveId(id)
 
       if(removed.isDefined) {
         log.debug("In ReaderActor - Requesting another sequence...")
         val newId = UUID.randomUUID()
         idMap.put(newId, 0)
+        inFlightCounter.increment()
         sender ! ServerActor.ReaderRequest(newId, 0)
       } else {
         log.debug(s"In ReaderActor - Map didn't contain id $id. Not requesting another sequence")

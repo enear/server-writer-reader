@@ -17,7 +17,16 @@ server-write-reader
 ## run containers with docker-compose
 > $ docker-compose up -d
 
-JMX is exposed in ports 9991, 9992, and 9993. Graphana is exposed in port 80 
+JMX is exposed in ports 9991, 9992, and 9993. Graphana is exposed in port 80
+
+# JMX metrics
+
+Besides the metrics that can be browsed through the graphana dashboard, the reader component exposes the following metrics as MBeans
+
+* kamon.min-max-counter.completedSequences.min-max-counter
+* kamon.min-max-counter.inFlightSequences.min-max-counter
+
+Every 10 seconds the MBeans attributes are updated
 
 # graphana dashboard 
 
