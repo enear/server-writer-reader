@@ -3,22 +3,57 @@ server:
   links:
     - kamon
   ports:
-    - "2552"
-  command: Server -DserverHost=server -Dakka.persistence.journal.leveldb.dir=journal -Dkamon.statsd.hostname=kamon -Dkamon.statsd.simple-metric-key-generator.hostname-override=server
+    - "9991:9991"
+  command: >
+    Server 
+    -DserverHost=server
+    -Dakka.persistence.journal.leveldb.dir=journal
+    -Dkamon.statsd.hostname=kamon
+    -Dkamon.statsd.simple-metric-key-generator.hostname-override=server
+    -Dcom.sun.management.jmxremote
+    -Dcom.sun.management.jmxremote.authenticate=false
+    -Dcom.sun.management.jmxremote.ssl=false
+    -Dcom.sun.management.jmxremote.port=9991
+    -Dcom.sun.management.jmxremote.rmi.port=9991
+    -Djava.rmi.server.hostname=0.0.0.0
   
 writer:
   image: server-writer-reader:1.0
   links:
-  - server
-  - kamon
-  command: Writer -DserverHost=server -Dkamon.statsd.hostname=kamon -Dkamon.statsd.simple-metric-key-generator.hostname-override=writer
+    - server
+    - kamon
+  ports:
+    - "9992:9992"
+  command: > 
+    Writer
+    -DserverHost=server
+    -Dkamon.statsd.hostname=kamon
+    -Dkamon.statsd.simple-metric-key-generator.hostname-override=writer
+    -Dcom.sun.management.jmxremote
+    -Dcom.sun.management.jmxremote.authenticate=false
+    -Dcom.sun.management.jmxremote.ssl=false
+    -Dcom.sun.management.jmxremote.port=9992
+    -Dcom.sun.management.jmxremote.rmi.port=9992
+    -Djava.rmi.server.hostname=0.0.0.0
   
 reader:
   image: server-writer-reader:1.0
   links:
     - server
     - kamon
-  command: Reader -DserverHost=server -Dkamon.statsd.hostname=kamon -Dkamon.statsd.simple-metric-key-generator.hostname-override=reader
+  ports:
+    - "9993:9993"
+  command: > 
+    Reader 
+    -DserverHost=server 
+    -Dkamon.statsd.hostname=kamon 
+    -Dkamon.statsd.simple-metric-key-generator.hostname-override=reader
+    -Dcom.sun.management.jmxremote
+    -Dcom.sun.management.jmxremote.authenticate=false
+    -Dcom.sun.management.jmxremote.ssl=false
+    -Dcom.sun.management.jmxremote.port=9993
+    -Dcom.sun.management.jmxremote.rmi.port=9993
+    -Djava.rmi.server.hostname=0.0.0.0
 
 kamon:
   image: sphonic/kamon_grafana_graphite
