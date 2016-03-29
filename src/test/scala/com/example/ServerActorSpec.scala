@@ -19,7 +19,7 @@ class ServerActorSpec extends TestKit(ActorSystem("ServerActorSpec")) with Impli
     TestKit.shutdownActorSystem(system)
   }
 
-  val readerActor = TestProbe("reader")
+  var readerActor = createReaderProbe()
   var writerActor = createWriterProbe()
  
   "A Server actor" must {
@@ -71,21 +71,15 @@ class ServerActorSpec extends TestKit(ActorSystem("ServerActorSpec")) with Impli
       val id4 = UUID.randomUUID()
       readerActor.send(serverActor, ReaderRequest(id4, 0))
       
-      //receive again for id3
+      //receive for id4
       (21 to 30) map { i => 
-        readerActor.expectMsg(SequenceUpdate(id3,i))
-        readerActor.send(serverActor, Acknowledge(id3))
-      }
-      readerActor.expectMsg(SequenceUpdate(id3, -1))
-      readerActor.send(serverActor, RemoveId(id3))
-      
-      //receive now for id4
-      (31 to 40) map { i => 
         readerActor.expectMsg(SequenceUpdate(id4,i))
         readerActor.send(serverActor, Acknowledge(id4))
       }
       readerActor.expectMsg(SequenceUpdate(id4, -1))
       readerActor.send(serverActor, RemoveId(id4))
+      
+      readerActor.expectNoMsg()
 
     }
     
@@ -97,13 +91,37 @@ class ServerActorSpec extends TestKit(ActorSystem("ServerActorSpec")) with Impli
       
       val id5 = UUID.randomUUID()
       readerActor.send(serverActor, ReaderRequest(id5, 0))
-      (41 to 50) map { i => 
+      (31 to 40) map { i => 
         readerActor.expectMsg(SequenceUpdate(id5,i))
         readerActor.send(serverActor, Acknowledge(id5))
       }
       readerActor.expectMsg(SequenceUpdate(id5, -1))
       readerActor.send(serverActor, RemoveId(id5))
+      
+      readerActor.expectNoMsg()
     }
+    
+    "handle reader restarts" in {
+      val id6 = UUID.randomUUID()
+      readerActor.send(serverActor, ReaderRequest(id6, 0))
+      
+      readerActor.ref ! Kill
+      
+      readerActor = createReaderProbe()
+      
+      val id7 = UUID.randomUUID()
+      readerActor.send(serverActor, ReaderRequest(id7, 0))
+      (41 to 50) map { i => 
+        readerActor.expectMsg(SequenceUpdate(id7,i))
+        readerActor.send(serverActor, Acknowledge(id7))
+      }
+      readerActor.expectMsg(SequenceUpdate(id7, -1))
+      readerActor.send(serverActor, RemoveId(id7))
+    }
+  }
+  
+  def createReaderProbe() = {
+    TestProbe("reader")
   }
   
   def createWriterProbe() = {

@@ -45,24 +45,23 @@ class ServerActor extends PersistentActor with ActorLogging {
   }
   
   def updateState(evt: Evt): Unit = {
-    updateSequencesQueue(evt)
     updateNrsQueue(evt)
   }
   
-  def updateSequencesQueue(evt: Evt): Unit = {
-    evt match {
-      case WriterEvt(int)  =>
-      case ReaderEvt(id) =>
+  def updateSequencesQueue(cmd: Cmd): Unit = {
+    cmd match {
+      case WriterData(int)  =>
+      case ReaderRequest(id, _) =>
         currentState match { 
           case None => currentState = Some(id, 1)
           case Some(_) => idQueue.enqueue(id)
         }
-      case AckEvt(id) =>
+      case Acknowledge(id) =>
         currentState match {
           case Some((id, count)) => currentState = Some(id, count+1)
           case None => log.warning("")
         }
-      case RemoveIdEvt(id) =>
+      case RemoveId(id) =>
         if(idQueue.isEmpty) {
           currentState = None
         }
@@ -77,11 +76,14 @@ class ServerActor extends PersistentActor with ActorLogging {
       case WriterEvt(int)  =>
         nrsQueue.enqueue(int)
         nextWriterNumber=int+1
-      case ReaderEvt(id) =>
       case AckEvt(id) =>
         nrsQueue.dequeue()
-      case RemoveIdEvt(id) =>
     }
+  }
+  
+  def updateReader(reader: ActorRef) = {
+    context.watch(reader)
+    readerActor = Some(reader)
   }
 
   def printState() = {
@@ -90,14 +92,14 @@ class ServerActor extends PersistentActor with ActorLogging {
 
   val receiveRecover: Receive = {
     case RecoveryCompleted => 
-      log.debug("Recovery complete")
+      log.info("Recovery complete")
       printState()
-      currentState.foreach { _ => self ! Retry } //in case we recover to currentState = Some() we need to start replying to reader
     case evt: Evt => updateState(evt);
     //    case SnapshotOffer(_, snapshot) => () //state = snapshot
   }
 
   val receiveCommand: Receive = {
+    //messages from writer
     case WriterGreet =>
       log.debug("In ServerActor - greet")
       writerActor = Some(sender())
@@ -110,25 +112,26 @@ class ServerActor extends PersistentActor with ActorLogging {
         requestingNumbers -= 1
       }
 
-    case ReaderRequest(uuid, count) =>
+    //messages from reader 
+    case r@ReaderRequest(uuid, count) =>
       log.debug("In ServerActor - Reader Request")
-      if(readerActor.isEmpty) readerActor = Some(sender())
+      updateReader(sender)
       val previousState = currentState
-      persist(ReaderEvt(uuid)){ event =>
-        updateState(event)
-        (currentState, previousState) match {
-          case (Some((currentId, currentCount)), None) => sendToReader(currentId, currentCount)
-          case (Some((currentId, currentCount)), Some((previousId, previousCount))) => log.debug(s"Already handling a readrequest for ($currentId, $currentCount). Doing nothing")
-          case (None, _) => log.warning("In ServerActor - State wrongfully not updated")
-        }
+      updateSequencesQueue(r)
+      (currentState, previousState) match {
+        case (Some((currentId, currentCount)), None) => sendToReader(currentId, currentCount)
+        case (Some((currentId, currentCount)), Some((previousId, previousCount))) => log.debug(s"Already handling a readrequest for ($currentId, $currentCount). Doing nothing")
+        case (None, _) => log.warning("In ServerActor - State wrongfully not updated")
       }
 
-    case Acknowledge(uuid) =>
+    case a@Acknowledge(uuid) =>
       log.debug(s"In ServerActor - Reader acknowledged an update for id $uuid")
+      updateReader(sender)
       currentState match {
         case Some((id, _)) if uuid == id =>
           persist(AckEvt(id)) { event =>
             updateState(event)
+            updateSequencesQueue(a)
             currentState.fold { log.warning("In ServerActor - no more messages to process") } { case (id, count) =>
               sendToReader(id, count)
             }
@@ -138,15 +141,14 @@ class ServerActor extends PersistentActor with ActorLogging {
 
         case None =>
           log.warning("In ServerActor - Received acknowledgement but no current state is assigned")
-       }
+      }
 
-    case RemoveId(id) =>
+    case r@RemoveId(id) =>
       log.debug("In ServerActor - Remove ID")
-      persist(RemoveIdEvt(id)) { event =>
-        updateState(event)
-        currentState.fold { log.warning("In ServerActor - removed a sequence and no more messages to process") } { case (newId, count) =>
-          sendToReader(newId, count)
-        }
+      updateReader(sender)
+      updateSequencesQueue(r)
+      currentState.fold { log.warning("In ServerActor - removed a sequence and no more messages to process") } { case (newId, count) =>
+        sendToReader(newId, count)
       }
 
       
@@ -173,6 +175,12 @@ class ServerActor extends PersistentActor with ActorLogging {
       currentState.fold { log.warning("In ServerActor - no more messages to process") } { case (id, count) =>
         sendToReader(id, count)
       }
+      
+    case Terminated(s) =>
+      log.warning(s"reader $s terminated. discarting state")
+      idQueue.clear()
+      currentState = None
+      
     case "print" => printState()
   }
   
@@ -203,21 +211,20 @@ class ServerActor extends PersistentActor with ActorLogging {
 
 object ServerActor {
   val props = Props[ServerActor]
+  sealed trait Cmd
   case object WriterGreet
-  case class WriterData(i: Int)
+  case class WriterData(i: Int) extends Cmd
   
-  case class ReaderRequest(uuid: UUID, i: Int)
-  case class RemoveId(uuid: UUID)
-  case class Acknowledge(uuid: UUID)
+  case class ReaderRequest(uuid: UUID, i: Int) extends Cmd
+  case class RemoveId(uuid: UUID) extends Cmd
+  case class Acknowledge(uuid: UUID) extends Cmd
   
   case object RequestNumbers
   case object Retry
 
   sealed trait Evt
-  case class ReaderEvt(uuid: UUID) extends Evt
   case class WriterEvt(count: Int) extends Evt
   case class AckEvt(uuid: UUID) extends Evt
-  case class RemoveIdEvt(uuid: UUID) extends Evt
   
   val ReaderRequestDataLength = 15
 }
