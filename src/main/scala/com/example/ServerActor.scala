@@ -58,8 +58,9 @@ class ServerActor extends PersistentActor with ActorLogging {
         }
       case Acknowledge(id) =>
         currentState match {
-          case Some((id, count)) => currentState = Some(id, count+1)
-          case None => log.warning("")
+            //This is only called when currentId == id
+          case Some((currentId, count)) => currentState = Some(id, count+1)
+          case None => log.warning("In ServerActor - Received an acknowledge for an uuid but no current id assigned")
         }
       case RemoveId(id) =>
         if(idQueue.isEmpty) {
@@ -94,8 +95,7 @@ class ServerActor extends PersistentActor with ActorLogging {
     case RecoveryCompleted => 
       log.info("Recovery complete")
       printState()
-    case evt: Evt => updateState(evt);
-    //    case SnapshotOffer(_, snapshot) => () //state = snapshot
+    case evt: Evt => updateState(evt)
   }
 
   val receiveCommand: Receive = {
@@ -132,8 +132,8 @@ class ServerActor extends PersistentActor with ActorLogging {
           persist(AckEvt(id)) { event =>
             updateState(event)
             updateSequencesQueue(a)
-            currentState.fold { log.warning("In ServerActor - no more messages to process") } { case (id, count) =>
-              sendToReader(id, count)
+            currentState.fold { log.warning("In ServerActor - no more messages to process") } { case (currentId, currentCount) =>
+              sendToReader(currentId, currentCount)
             }
           }
         case Some((id, count)) if uuid != id =>
@@ -310,9 +310,9 @@ class ReaderActor(serverActor: ActorSelection, nrSequences: Int) extends Actor w
           sender ! ServerActor.Acknowledge(id)
         case Some(c) if c >= count =>
           log.warning(s"In ReaderActor - server sent an unordered count for id: $id current: $c countReceived: $count")
-//          idMap.put(id, 0)
-//          serverActor ! ServerActor.RemoveId(id)
-//          serverActor ! ServerActor.ReaderRequest(id, 0)
+          idMap.put(id, 0)
+          serverActor ! ServerActor.RemoveId(id)
+          serverActor ! ServerActor.ReaderRequest(id, 0)
         case None =>
           log.warning(s"In ReaderActor - map does not contain $id. Acknowledging...")
           sender ! ServerActor.Acknowledge(id)
